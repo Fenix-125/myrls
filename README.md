@@ -1,38 +1,37 @@
-# Lab 2 Option 3: Adder
+# Lab 2 Syscalls & Directory listing \Output: myrls
 
 ## Team
 
- - [Volodymyr Chernetskyi](https://github.com/chernetskyi)
+ - [Yuriy Pasichnyk](https://github.com/Fenix-125)
 
 ## Prerequisites
 
  - **C++ compiler** - needs to support **C++17** standard
- - **CMake** 3.15+
+ - **CMake** 3.``15+
  
-The rest prerequisites (such as development libraries) can be found in the [packages file](./apt_packages.txt) in the form of the apt package manager package names.
+The rest prerequisites (such as development libraries) can be found in the
+[packages file](./apt_packages.txt) in the form of the apt package manager package names.
 
 ## Installing
 
 1. Clone the project.
     ```bash
-    git clone git@github.com:chernetskyi/cpp-template.git
+    git clone git@github.com:Fenix-125/myrls.git
     ```
-2. Install required packages. On Ubuntu:
+2. Install required libraries. On Ubuntu:
    ```bash
-   [[ -r apt_packages.txt ]] && sed 's/\r$//' apt_packages.txt | sed 's/#.*//' | xargs sudo apt-get install -y
+   sed 's/\r$//' apt_packages.txt | sed 's/#.*//' | xargs sudo apt-get install -y
    ```
 3. Build.
     ```bash
-    cmake -Bbuild
+    cmake -G"Unix Makefiles" -Bbuild
     cmake --build build
     ```
 
 ## Usage
 
 ```bash
-add [a] [b]
+myrls [-h|--help] [file_path]
 ```
 
-If less than two numbers provided, zeroes are used instead. If more - an error occurs.
-
-Help flags `-h`/`--help` support is available.
+For more detail see help. Help flags: `-h`/`--help`.
