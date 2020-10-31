@@ -14,10 +14,10 @@ option(WARNINGS_AS_ERRORS "Treat compiler warnings as errors." OFF)
 option(ENABLE_CONAN "Use Conan as a package manager." OFF)
 
 # ENABLE_PVS_STUDIO is the option for local usage only. PVS-Studio isn't installed on GitHub machines.
-option(ENABLE_PVS_STUDIO    "Use PVS-Studio static code analyzer."  OFF)
+option(ENABLE_PVS_STUDIO "Use PVS-Studio static code analyzer." OFF)
 
 # ENABLE_SANITIZERS is the option for the test builds. Do not use it in the production builds.
-option(ENABLE_SANITIZERS    "Use sanitizers to detect errors."      OFF)
+option(ENABLE_SANITIZERS "Use sanitizers to detect errors." OFF)
 
 
 # Include default CMake configuration
