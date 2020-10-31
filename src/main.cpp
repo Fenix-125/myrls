@@ -1,24 +1,36 @@
 // This is an open source non-commercial project. Dear PVS-Studio, please check it.
 // PVS-Studio Static Code Analyzer for C, C++ and C#: http://www.viva64.com
 
-// Remember to include ALL the necessary headers!
 #include <iostream>
 #include <boost/program_options.hpp>
 #include <boost/format.hpp>
 #include <ftw.h>
 #include <pwd.h>
 #include <unistd.h>
-#include <filesystem>
+#include <vector>
+#include <algorithm>
+#include <queue>
 
-// TODO: Critical ==> Якщо директорію
-//      вивести її вміст
-//      посортований за іменем
-//      потім, рекурсивно -- вміст кожної із її піддиректорій, теж в алфавітному порядку
-//      Малі літери вважаються меншими за великі -- мають йти на початку.
+static int dir_call_back(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf);
 
-// TODO: Попередження ==> Якщо переданого шляху не існує -- повідомити про помилку, з використанням stderr та завершити виконання.
+static int file_call_back(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf);
 
-static int call_back(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf);
+static std::string get_user_name(uid_t uid);
+
+static std::string get_permission(mode_t mode);
+
+static unsigned char get_file_type(int tflag, mode_t mode, bool *access);
+
+static std::string get_date_time(const timespec &timespec);
+
+struct list_el_t {
+    bool is_dir;
+    std::string f_path;
+    std::string to_print;
+};
+
+static std::vector<list_el_t> el_to_sort{};
+static std::queue<std::string> dirs_queue{};
 
 int main(int argc, char **argv) {
     if (argc > 2) {
@@ -57,10 +69,87 @@ int main(int argc, char **argv) {
         std::cerr << "Error: file '" << path << "' do not exist!";
         return EXIT_FAILURE;
     }
-    if (nftw(path.data(), call_back, 20, FTW_PHYS | FTW_ACTIONRETVAL) == -1) {
+    struct stat init_path_stat{};
+    if (stat(path.data(), &init_path_stat) == -1) {
+        std::cerr << "Error: fail to access '" << path << "'" << std::endl;
         return EXIT_FAILURE;
     }
+    if (!S_ISDIR(init_path_stat.st_mode)) {
+        if (nftw(path.data(), file_call_back, 20, FTW_PHYS | FTW_ACTIONRETVAL) == -1) {
+            std::cerr << "Error: fail to recursively go through path tree!" << std::endl;
+            return EXIT_FAILURE;
+        } else {
+            return EXIT_SUCCESS;
+        }
+    }
+    dirs_queue.push(std::move(path));
+    std::string tmp_dir_path;
+    while (!dirs_queue.empty()) {
+        tmp_dir_path = dirs_queue.front();
+        if (nftw(dirs_queue.front().data(), dir_call_back, 20, FTW_PHYS | FTW_ACTIONRETVAL) == -1) {
+            return EXIT_FAILURE;
+        }
+        dirs_queue.pop();
+        std::sort(el_to_sort.begin(), el_to_sort.end(),
+                  [](const list_el_t &el1, const list_el_t &el2) { return el1.f_path < el2.f_path; });
+        std::cout << tmp_dir_path << ":" << std::endl;
+        for (auto &list_el : el_to_sort) {
+            if (list_el.is_dir)
+                dirs_queue.push(std::move(list_el.f_path));
+            std::cout << list_el.to_print << std::endl;
+        }
+        el_to_sort.clear();
+        std::cout << std::endl;
+    }
     return EXIT_SUCCESS;
+}
+
+static int dir_call_back(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
+    if (ftwbuf->level == 0)
+        return FTW_CONTINUE;
+    std::string user = get_user_name(sb->st_uid);
+    std::string file_name = basename(fpath);
+    std::string permissions = get_permission(sb->st_mode);
+    std::string date_time = get_date_time(sb->st_mtim);
+    bool access = true;
+    unsigned char f_type = get_file_type(tflag, sb->st_mode, &access);
+    bool is_dir = false;
+    if (!access) {
+        std::cerr << "Error: For path '" << fpath << "' permission denied!" << std::endl;
+        return FTW_CONTINUE;
+    } else if (f_type == '/') {
+        if (file_name == "." || file_name == "..")
+            return FTW_CONTINUE;
+        else {
+            is_dir = true;
+        }
+    }
+
+    el_to_sort.emplace_back(
+            list_el_t{is_dir, fpath,
+                      (boost::format("%s %10s %12s  %s %c%s") % permissions % user
+                       % (intmax_t) sb->st_size % date_time % f_type % file_name).str()}
+    );
+    if (is_dir)
+        return FTW_SKIP_SUBTREE;
+    else
+        return FTW_CONTINUE;
+}
+
+static int file_call_back(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
+    std::string user = get_user_name(sb->st_uid);
+    std::string file_name = basename(fpath);
+    std::string permissions = get_permission(sb->st_mode);
+    std::string date_time = get_date_time(sb->st_mtim);
+    bool access = true;
+    unsigned char f_type = get_file_type(tflag, sb->st_mode, &access);
+    if (!access) {
+        std::cerr << "Error: For path '" << fpath << "' permission denied!" << std::endl;
+        return FTW_STOP;
+    }
+    std::cout << boost::format("%s %10s %12s  %s %c%s") % permissions % user
+                 % (intmax_t) sb->st_size % date_time % f_type % file_name << std::endl;
+    return FTW_STOP;
 }
 
 static std::string get_user_name(uid_t uid) {
@@ -91,57 +180,41 @@ static std::string get_permission(mode_t mode) {
     return res;
 }
 
-static unsigned char get_file_type(int tflag, mode_t mode) {
+static unsigned char get_file_type(int tflag, mode_t mode, bool *access) {
     switch (tflag) {
-        case FTW_F:
-            return ' ';
         case FTW_D:
+            return '/';
         case FTW_DNR:
+            *access = false;
             return '/';
         case FTW_SL:
-        case FTW_SLN:
             return '@'; // may be '?' for FTW_SLN
+        case FTW_SLN:
+            *access = false;
+            return '@';
         case FTW_NS:
-            return '\0';
+            *access = false;
+            return '?';
         default:
             if (S_ISFIFO(mode))
                 return '|';
             else if (S_ISSOCK(mode))
                 return '=';
-            else
+            else if (S_ISREG(mode)) {
+                if (S_IXUSR & mode)
+                    return '*';
+                return ' ';
+            } else
                 return '?';
     }
 }
 
 static std::string get_date_time(const timespec &timespec) {
+
     struct tm time{};
     char buf[20];
     tzset();
     localtime_r(&(timespec.tv_sec), &time);
     strftime(buf, 20, "%F %T", &time);
     return buf;
-}
-
-int call_back(const char *fpath, const struct stat *sb, int tflag, struct FTW *ftwbuf) {
-    std::string user = get_user_name(sb->st_uid);
-    std::string file_name = basename(fpath);
-    std::string permissions = get_permission(sb->st_mode);
-    std::string date_time = get_date_time(sb->st_mtim);
-    unsigned char f_type = get_file_type(tflag, sb->st_mode);
-
-    if (!f_type) {
-        std::cerr << "Error: For path '" << fpath
-                  << "'. The stat() function failed on the object because of lack of appropriate permission. On depth level: "
-                  << ftwbuf->level << std::endl;
-        return FTW_CONTINUE;
-    } else if (f_type == '/') {
-        if (file_name == "." || file_name == "..")
-            return FTW_CONTINUE;
-//        else
-//            return FTW_SKIP_SUBTREE;
-    }
-
-    std::cout << boost::format("%s %s %12s  %s %c%s\n") % permissions % user % (intmax_t) sb->st_size % date_time
-                 % f_type % file_name;
-    return FTW_CONTINUE;  /* To tell nftw() to continue */
 }
